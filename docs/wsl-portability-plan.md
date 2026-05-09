@@ -24,8 +24,8 @@ This plan is structured so any agent (a fresh session, a subagent, or the user t
 ## Status (update at end of each chunk)
 
 - [x] **Phase 0** — Workspace hygiene (branch created, plan committed to `docs/`)
-- [~] **Phase 1** — WSL + Docker prerequisites (in progress: WSL2/Ubuntu verified; Docker install pending user; fork being set up out of phase order)
-- [ ] **Phase 6 (partial, early)** — Fork created and remotes rewired so the WIP branch is pushable for cross-machine work. Plan-strip + actual PR open still happen at the real Phase 6.
+- [x] **Phase 1** — WSL + Docker prerequisites verified (apt-installed `docker.io` inside WSL with systemd; `hello-world` works). Repo location decision pending — see Phase 1 stop-gate.
+- [x] **Phase 6 (partial, early)** — Fork at `betztek/claude-code-docker` created; `origin` points at fork, `upstream` at `cdowin/claude-code-docker`; `main` and `wsl-portability` pushed. Plan-strip + actual PR open still happen at the real Phase 6.
 - [ ] **Phase 2** — Smoke run + failure list captured (no commits; appended to this plan)
 - [ ] **Phase 3** — bats harness scaffold landed
 - [ ] **Phase 4a** — TDD: timezone detection
@@ -79,18 +79,52 @@ Update Status checkbox in `.claude/plans/wsl-portability.md`. Hand back to user 
 
 ## Phase 1 — WSL + Docker prerequisites (one-time, host-level setup)
 
-**Pre-conditions:** Phase 0 complete. User has admin on this Windows machine.
+**Pre-conditions:** Phase 0 complete. User has admin on the Windows machine.
 
-**Work (this is mostly user-driven; agent walks the user through):**
-1. From PowerShell: `wsl --list --verbose`. If no Ubuntu distro, `wsl --install -d Ubuntu` and reboot if prompted.
-2. Install Docker Desktop for Windows from https://www.docker.com/products/docker-desktop/. During or after install: **Settings → Resources → WSL Integration**, enable for Ubuntu.
-3. Inside WSL Ubuntu: `docker version` (Client + Server both shown), `docker run --rm hello-world`.
-4. Decide repo location inside WSL. **Recommended:** fresh `git clone https://github.com/cdowin/claude-code-docker.git ~/claude-code-docker` to avoid `/mnt/c` perf and permission quirks. Then `cd ~/claude-code-docker && git checkout wsl-portability` (after pushing the branch from Windows side, or just create the branch fresh in WSL and merge later).
-   - **Simpler alternative:** work in `/mnt/c/Users/<windows-user>/IT\ Docs/Software/claude-code-docker` directly. Note the space in the path may bite us later — useful test fixture.
+**Decision:** install Docker engine **inside WSL via apt** (not Docker Desktop). Reasons: (a) cleaner README story for the upstream PR — `sudo apt install docker.io` is unambiguous and needs no curl-pipe-sh or third-party apt repo, (b) no Docker Desktop license to worry about, (c) self-contained inside WSL.
+
+**Work (run from a WSL shell — no need to know the distro name):**
+
+1. From PowerShell: `wsl --list --verbose` to confirm a WSL2 distro exists. If none, `wsl --install -d Ubuntu` and reboot if prompted.
+2. Open the WSL shell. Enable systemd so `dockerd` autostarts each session:
+   ```bash
+   sudo bash -c "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+   exit
+   ```
+3. From PowerShell: `wsl --shutdown` (so systemd takes effect).
+4. Open a fresh WSL shell. Verify systemd is PID 1, then install Docker:
+   ```bash
+   ps -p 1 -o comm=                # should print "systemd"
+   sudo apt-get update
+   sudo apt-get install -y docker.io
+   sudo usermod -aG docker $USER
+   exit
+   ```
+5. From PowerShell: `wsl --shutdown` again (so the docker group membership applies).
+6. Open a fresh WSL shell and verify:
+   ```bash
+   docker version                  # client + server both shown
+   docker run --rm hello-world
+   ```
+7. **Decide repo location inside WSL.** Recommended: fresh `git clone https://github.com/betztek/claude-code-docker.git ~/claude-code-docker && cd ~/claude-code-docker && git checkout wsl-portability`. This avoids `/mnt/c` permission/perf quirks. Cloning the **fork** (not upstream) means the WIP branch is already there.
+   - Alternative if working from `/mnt/c`: paths with spaces (e.g. `/mnt/c/Users/<windows-user>/IT\ Docs/Software/claude-code-docker`) are useful test fixtures but slow on `/mnt/c` — only use this if cross-mounting is needed.
 
 **Commits:** None.
 
 **Stop-gate:** Report `docker version` output and which repo location was chosen. Ask user for go-ahead on Phase 2.
+
+### Cross-system workflow
+
+The fork lives at `https://github.com/betztek/claude-code-docker.git`. To pick up work on a new machine after Phase 1 is done there:
+
+```bash
+git clone https://github.com/betztek/claude-code-docker.git
+cd claude-code-docker
+git checkout wsl-portability
+# read docs/wsl-portability-plan.md, find first unchecked Status box, continue
+```
+
+No need to redo `.git/info/exclude` — the plan now lives in `docs/` (committed), not `.claude/` (local-only). Each Phase 1 setup (systemd + Docker install) is per-machine and not repeatable from the repo state, so do that first on any new system.
 
 ---
 
@@ -102,7 +136,9 @@ Update Status checkbox in `.claude/plans/wsl-portability.md`. Hand back to user 
 1. `cp claude-docker.conf.example claude-docker.conf`
 2. Edit `claude-docker.conf`:
    - `auth_method=file`
-   - `claude_credentials_file=/mnt/c/Users/<windows-user>/.claude/.credentials.json`
+   - `claude_credentials_file=<path to your .credentials.json>`. Two reasonable choices on WSL:
+     - **Bridge to Windows-side credentials:** `/mnt/c/Users/<you>/.claude/.credentials.json` if Claude Code on Windows has already authed and you want to reuse that file.
+     - **WSL-native:** authenticate Claude Code from inside WSL once (so a credentials file lives at `~/.claude/.credentials.json`) and use that path. Cleaner if the WSL machine will be your primary driver.
    - `default_workspace=$HOME/work` (or chosen path; create dir if absent)
 3. `./run-claude.sh smoke` — capture stdout + stderr verbatim.
 4. If it boots: `docker exec claude-smoke claude --version`, then `./run-claude.sh --rm smoke`.
