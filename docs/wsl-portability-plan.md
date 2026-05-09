@@ -201,6 +201,7 @@ Each sub-chunk follows the same pattern. **Do exactly one sub-chunk per agent in
 - **4b** — `security` Keychain guard ([run-claude.sh:106](run-claude.sh#L106)). Test: when `command -v security` returns nonzero (non-macOS) and `auth_method=file`, the script doesn't try to call `security` and proceeds with file auth.
 - **4c** — `gh auth token` fallback ([run-claude.sh:244](run-claude.sh#L244)). Test: when `gh` not on PATH, script doesn't error out; it falls back / skips token injection cleanly.
 - **4d** — Anything else surfaced by Phase 2.
+  - **Revisit `.gitattributes`** (added pre-Phase-2 to unblock WSL/`/mnt/c` work — see Phase 2 findings). Confirm coverage (`*.sh`, `*.bash`, `*.bats`) is still right by then; consider whether `Dockerfile`, `*.yml`, `*.md` should also be pinned to LF, and whether a `* text=auto` baseline is wanted.
 
 ---
 
@@ -253,7 +254,12 @@ Each sub-chunk follows the same pattern. **Do exactly one sub-chunk per agent in
 
 ## Phase 2 findings
 
-(populate during Phase 2)
+**Pre-Phase-2 (line-endings, surfaced while bringing up `/mnt/c` workflow on a second machine):**
+- All tracked shell scripts (`entrypoint.sh`, `init-firewall.sh`, `run-claude.sh`, `statusline.sh`) checked out as CRLF on Windows under default `core.autocrlf=true`. The repo's index is LF — only the working-tree checkout was mangled. Bash refuses `#!/bin/bash\r`, so `run-claude.sh` would not execute as-is from `/mnt/c`.
+- Fix: added `.gitattributes` pinning `*.sh`, `*.bash`, `*.bats` to `eol=lf`. Force-re-checkout applied to working tree. Decision to land this now (rather than in 4d) was deliberate so the fix follows the repo across machines via OneDrive.
+- Revisit in 4d (see Phase 4 likely-sub-chunks list).
+
+(populate further during Phase 2)
 
 ---
 
