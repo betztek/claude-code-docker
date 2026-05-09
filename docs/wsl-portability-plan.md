@@ -107,7 +107,7 @@ Update Status checkbox in `.claude/plans/wsl-portability.md`. Hand back to user 
    docker run --rm hello-world
    ```
 7. **Decide repo location inside WSL.** Recommended: fresh `git clone https://github.com/betztek/claude-code-docker.git ~/claude-code-docker && cd ~/claude-code-docker && git checkout wsl-portability`. This avoids `/mnt/c` permission/perf quirks. Cloning the **fork** (not upstream) means the WIP branch is already there.
-   - Alternative if working from `/mnt/c`: paths with spaces (e.g. `/mnt/c/Users/<windows-user>/IT\ Docs/Software/claude-code-docker`) are useful test fixtures but slow on `/mnt/c` — only use this if cross-mounting is needed.
+   - Alternative if working from `/mnt/c`: paths with spaces (e.g. `/mnt/c/Users/<windows-user>/My\ Projects/claude-code-docker`) are useful test fixtures but slow on `/mnt/c` — only use this if cross-mounting is needed.
 
 **Commits:** None.
 
