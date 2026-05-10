@@ -28,10 +28,10 @@ This plan is structured so any agent (a fresh session, a subagent, or the user t
 - [x] **Phase 6 (partial, early)** — Fork at `betztek/claude-code-docker` created; `origin` points at fork, `upstream` at `cdowin/claude-code-docker`; `main` and `wsl-portability` pushed. Plan-strip + actual PR open still happen at the real Phase 6.
 - [x] **Phase 2** — Smoke run + failure list captured. Three findings (F1, F2, F3) plus the build-vs-pull observation logged below. Container boots and `claude --version` works inside it once F1 is worked around.
 - [ ] **Phase 3** — bats harness scaffold landed
-- [ ] **Phase 4a** — TDD: timezone detection
-- [ ] **Phase 4b** — TDD: auth-method selection (Keychain guard)
-- [ ] **Phase 4c** — TDD: gh-token fallback
-- [ ] **Phase 4d** — TDD: any other failures from Phase 2
+- [ ] **Phase 4a** — TDD: F1, credentials dual-mount overlap when creds live in `~/.claude`
+- [ ] **Phase 4b** — TDD: F2, container `chown` corrupts host `~/.claude` ownership on Linux
+- [ ] **Phase 4c** — TDD: F3, host script doesn't degrade gracefully in non-TTY contexts
+- [ ] **Phase 4d** — Regression coverage (timezone-absent, missing `gh`, default-keychain UX) + `.gitattributes` review
 - [ ] **Phase 5** — README WSL section
 - [ ] **Phase 6** — Fork, push, open PR
 
@@ -195,15 +195,20 @@ Each sub-chunk follows the same pattern. **Do exactly one sub-chunk per agent in
 
 **Stop-gate:** Report the diff (`git log --oneline upstream/main..HEAD` or similar) and ask for go-ahead on the next sub-chunk.
 
-### Likely sub-chunks (final list set after Phase 2)
+### Sub-chunks (reshaped post-Phase 2 around actual findings)
 
-- **4a** — Timezone detection ([run-claude.sh:272](run-claude.sh#L272)). Test: with `/etc/timezone` present (Ubuntu/WSL case) → returns its contents; with it absent → returns `Etc/UTC` or graceful fallback without stderr noise.
-- **4b** — `security` Keychain guard ([run-claude.sh:106](run-claude.sh#L106)). Test: when `command -v security` returns nonzero (non-macOS) and `auth_method=file`, the script doesn't try to call `security` and proceeds with file auth.
-- **4c** — `gh auth token` fallback ([run-claude.sh:244](run-claude.sh#L244)). Test: when `gh` not on PATH, script doesn't error out; it falls back / skips token injection cleanly.
-- **4d** — Anything else surfaced by Phase 2. Concrete items so far:
-  - **F1: dual-mount overlap when creds live inside `~/.claude`.** [run-claude.sh:232](run-claude.sh#L232) mounts `$CLAUDE_DIR` rw and [:238](run-claude.sh#L238) mounts `$CREDS_FILE` ro at `/mnt/host-credentials.json`. When the creds file is inside the .claude dir (the *canonical* Linux/WSL location, per [claude-docker.conf.example:22](claude-docker.conf.example#L22)), both mounts hit the same host inode, and [entrypoint.sh:26](entrypoint.sh#L26)'s `cp` fails with "are the same file". Test: with `CREDS_FILE` under `CLAUDE_DIR`, script does not emit the duplicate `-v` mount; entrypoint sees creds via the dir mount and chmod/chown's them in place. Out of band: requires a small refactor in entrypoint to make the cp conditional, or to skip it entirely when the dest already holds the source.
-  - **F2: container `chown` clobbers host `~/.claude` ownership.** [entrypoint.sh:12](entrypoint.sh#L12) runs `chown -R claude:claude /home/claude/.claude` as root inside the container against the bind-mounted host directory. On Linux/WSL, the chown propagates to the host; the container's `claude` user is UID 1001 (next free after node:22-slim's `node` at 1000), which doesn't match the host user's UID (1002 in our case), so the host's `~/.claude` becomes unwriteable by the host user. macOS hides this because Docker Desktop's bind-mount layer translates ownership. Test: after running the container against a bind-mounted host dir, that dir's host-side ownership and mode are unchanged. Fix candidates: (a) detect non-mac host and skip the chown (or only chown specific files we wrote, not the whole tree); (b) build the container with a UID-matching mechanism (existing upstream commit `2e04eba` mentions "Match container UID to host user", later reverted in `839ef7a` to favor chown — that history is relevant context).
-  - **Revisit `.gitattributes`** (added pre-Phase-2 to unblock WSL/`/mnt/c` work — see Phase 2 findings). Confirm coverage (`*.sh`, `*.bash`, `*.bats`) is still right by then; consider whether `Dockerfile`, `*.yml`, `*.md` should also be pinned to LF, and whether a `* text=auto` baseline is wanted.
+The original 4a/b/c (timezone, keychain guard, gh fallback) turned out to be largely already-fine on the WSL/Ubuntu path — see "Verifications" in Phase 2 findings. They survive in 4d as regression coverage, not fix-work. The real fix-work is F1, F2, F3.
+
+- **4a — F1: credentials dual-mount overlap.** [run-claude.sh:232](run-claude.sh#L232) mounts `$CLAUDE_DIR` rw at `/home/claude/.claude` and [:238](run-claude.sh#L238) mounts `$CREDS_FILE` ro at `/mnt/host-credentials.json`. When the creds file is inside the .claude dir (the *canonical* Linux/WSL location, per [claude-docker.conf.example:22](claude-docker.conf.example#L22)), both mounts hit the same host inode, and [entrypoint.sh:26](entrypoint.sh#L26)'s `cp` fails with "are the same file". Reproduced under both Windows-copied and OAuth-derived credentials. Test: with `CREDS_FILE` under `CLAUDE_DIR`, script does not emit the duplicate `-v` mount; entrypoint sees creds via the dir mount and adjusts perms in place. Fix shape: skip the explicit `-v` for `/mnt/host-credentials.json` when the path is inside `$CLAUDE_DIR`, and make entrypoint's cp conditional ("if /mnt/host-credentials.json exists AND differs from dest").
+- **4b — F2: container `chown` corrupts host ownership on Linux.** [entrypoint.sh:12](entrypoint.sh#L12) runs `chown -R claude:claude /home/claude/.claude` as root inside the container against the bind-mounted host directory. On Linux/WSL, the chown propagates to the host; the container's `claude` user (UID 1001 — next free after node:22-slim's `node` at 1000) doesn't match the host user's UID (1002 in our case), so the host's `~/.claude` becomes unwriteable. macOS hides this via Docker Desktop's mount-layer ownership translation. Test: after running the container against a bind-mounted host dir, that dir's host-side ownership and mode are unchanged. Fix candidates: (a) detect non-mac host and skip the recursive chown (touch only the specific files entrypoint wrote — `.credentials.json`, `.claude.json`); (b) build the container with a UID-matching mechanism (relevant history: `2e04eba` added UID matching, `839ef7a` reverted to chown — that arc is context for choosing direction).
+- **4c — F3: host script doesn't degrade in non-TTY contexts.** [run-claude.sh:260](run-claude.sh#L260) and [:287](run-claude.sh#L287) blindly `exec docker exec -it` after the container is up. In non-interactive shells (CI, agent harnesses) this exits 1 with `the input device is not a TTY`, masking a successful container boot. Test: when stdin isn't a TTY, script either skips the auto-attach (printing a "container ready, attach with: …" hint) or returns 0. Fix shape: gate the `-it` exec on `[ -t 0 ]`.
+- **4d — Regression coverage + `.gitattributes` review.** Defensive tests for the originally-suspected bugs (which turned out fine):
+  - **Timezone fallback** ([run-claude.sh:272](run-claude.sh#L272)): with `/etc/timezone` absent (Arch and some other distros), the `readlink /etc/localtime` fallback should still return a valid TZ string. Test by stubbing `/etc/timezone` away.
+  - **Missing `gh`** ([run-claude.sh:243](run-claude.sh#L243)): with `gh` not on PATH, script completes without error and emits no GH_TOKEN env. Test by ensuring `gh` is masked.
+  - **Default-keychain on non-mac** ([claude-docker.conf.example:17](claude-docker.conf.example#L17)): a Linux user copying the example without editing hits the keychain branch and gets `security: command not found`. Decide whether to (a) leave the example default and emit a clearer cross-platform error, (b) flip the example to a non-keychain default, or (c) auto-detect platform and fall back. UX choice for the upstream PR review.
+  - **`.gitattributes` coverage**: confirm `*.sh`, `*.bash`, `*.bats` is the right scope. Consider pinning `Dockerfile`, `*.yml`, `*.md` to LF, and whether a `* text=auto` baseline is wanted.
+
+**Deferred to after 4a:** the README/example's recommended Linux/WSL auth path. Once F1 is fixed, `auth_method=file` with creds at `~/.claude/.credentials.json` works correctly, and the README/example can recommend that without workaround caveats. Decide in Phase 5.
 
 ---
 
