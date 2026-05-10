@@ -8,9 +8,36 @@ set -e
 echo "Stripping suid/sgid bits..."
 find /usr /bin /sbin -perm /6000 -type f -exec chmod a-s {} + 2>/dev/null || true
 
-# Fix ownership on mounted directories so claude user can read/write them
-chown -R claude:claude /home/claude/.claude 2>/dev/null || true
-chown -R claude:claude /workspace 2>/dev/null || true
+# Align claude user's UID/GID to the host user's so bind-mounted files
+# (~/.claude, /workspace) are naturally accessible. This avoids an
+# unconditional recursive chown of the bind mount, which would propagate
+# to the host on Linux/WSL and leave the host user unable to write its
+# own ~/.claude (F2). macOS Docker Desktop hides the propagation but the
+# UID-matching path is harmless there too.
+#
+# When HOST_UID/HOST_GID aren't passed (older callers, manual `docker run`),
+# fall back to the legacy recursive chown.
+if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ]; then
+  CURRENT_UID=$(id -u claude)
+  CURRENT_GID=$(id -g claude)
+  if [ "$HOST_UID" != "$CURRENT_UID" ] || [ "$HOST_GID" != "$CURRENT_GID" ]; then
+    # Edit /etc/passwd and /etc/group directly rather than calling
+    # `usermod -u`. usermod's documented behavior is to auto-chown files
+    # in the user's home directory owned by the old UID — and on a
+    # bind-mounted /home/claude/.claude that walk propagates back to the
+    # host, exactly the behavior F2 is meant to prevent.
+    sed -i "s/^claude:x:[0-9]*:[0-9]*:/claude:x:$HOST_UID:$HOST_GID:/" /etc/passwd
+    sed -i "s/^claude:x:[0-9]*:/claude:x:$HOST_GID:/" /etc/group
+    # Re-own build-time artifacts created at the original claude UID.
+    # Explicitly skip the bind-mounted .claude/.workspace — that's the point.
+    chown -R "$HOST_UID:$HOST_GID" /home/claude/.local 2>/dev/null || true
+  fi
+else
+  # Legacy fallback: recursive chown of bind mounts. Propagates ownership
+  # changes back to the host on Linux/WSL — see F2.
+  chown -R claude:claude /home/claude/.claude 2>/dev/null || true
+  chown -R claude:claude /workspace 2>/dev/null || true
+fi
 
 # Symlink host user's home path so plugin absolute paths resolve inside container.
 # Marketplace configs store the host's absolute path (e.g. /Users/cdowin/.claude/...)
