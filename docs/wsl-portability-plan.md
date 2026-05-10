@@ -28,7 +28,7 @@ This plan is structured so any agent (a fresh session, a subagent, or the user t
 - [x] **Phase 6 (partial, early)** — Fork at `betztek/claude-code-docker` created; `origin` points at fork, `upstream` at `cdowin/claude-code-docker`; `main` and `wsl-portability` pushed. Plan-strip + actual PR open still happen at the real Phase 6.
 - [x] **Phase 2** — Smoke run + failure list captured. Three findings (F1, F2, F3) plus the build-vs-pull observation logged below. Container boots and `claude --version` works inside it once F1 is worked around.
 - [x] **Phase 3** — bats harness scaffold landed (4 commits: vendored submodules, BASH_SOURCE main-guard, test scaffold, CI workflow). `tests/lib/bats-core/bin/bats tests/` green locally; CI workflow at `.github/workflows/test.yml` triggers on push + PR.
-- [ ] **Phase 4a** — TDD: F1, credentials dual-mount overlap when creds live in `~/.claude`
+- [x] **Phase 4a** — TDD: F1 fixed (credentials dual-mount overlap). New `is_path_under_dir` helper in `run-claude.sh`; CRED_ARGS construction skips the `/mnt/host-credentials.json` mount when CREDS_FILE is inside CLAUDE_DIR. Defensive `-ef` guard added to entrypoint. 3 bats cases + 1 smoke (executable check) green. End-to-end smoke booted cleanly with canonical `~/.claude/.credentials.json`.
 - [ ] **Phase 4b** — TDD: F2, container `chown` corrupts host `~/.claude` ownership on Linux
 - [ ] **Phase 4c** — TDD: F3, host script doesn't degrade gracefully in non-TTY contexts
 - [ ] **Phase 4d** — Regression coverage (timezone-absent, missing `gh`, default-keychain UX) + `.gitattributes` review
