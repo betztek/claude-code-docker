@@ -25,6 +25,23 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# ── Helpers ──────────────────────────────────────────────────────
+# Return 0 if $1 (a file) is inside $2 (a directory). Both paths must
+# exist; uses pwd -P so symlinks resolve to canonical absolute paths.
+# Used to detect when CREDENTIALS_FILE lives inside CLAUDE_DIR so the
+# explicit cred mount can be skipped (avoids F1 dual-mount overlap).
+is_path_under_dir() {
+  local file="$1" dir="$2"
+  [ -e "$file" ] && [ -d "$dir" ] || return 1
+  local file_dir dir_abs
+  file_dir=$(cd "$(dirname "$file")" && pwd -P)
+  dir_abs=$(cd "$dir" && pwd -P)
+  case "$file_dir/" in
+    "$dir_abs"/*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 main() {
 # ── Subcommands ──────────────────────────────────────────────────
 case "${1:-}" in
@@ -233,9 +250,13 @@ if [ -d "$CLAUDE_DIR" ]; then
   CLAUDE_STATE_ARGS+=(-v "$CLAUDE_DIR:/home/claude/.claude")
 fi
 
-# Mount credentials read-only — entrypoint copies so Claude can refresh tokens
+# Mount credentials read-only — entrypoint copies so Claude can refresh tokens.
+# Skip the explicit mount when CREDS_FILE lives inside CLAUDE_DIR — both bind
+# mounts would otherwise resolve to the same host inode and the entrypoint's
+# `cp` would fail with "are the same file" (F1). The dir mount above already
+# exposes the creds at /home/claude/.claude/.credentials.json.
 CRED_ARGS=()
-if [ -n "$CREDS_FILE" ]; then
+if [ -n "$CREDS_FILE" ] && ! is_path_under_dir "$CREDS_FILE" "$CLAUDE_DIR"; then
   CRED_ARGS+=(-v "$CREDS_FILE:/mnt/host-credentials.json:ro")
 fi
 

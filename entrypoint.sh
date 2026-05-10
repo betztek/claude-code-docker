@@ -21,11 +21,17 @@ if [ -n "$HOST_HOME" ] && [ "$HOST_HOME" != "/home/claude" ]; then
   ln -sfn /home/claude "$HOST_HOME"
 fi
 
-# Copy credentials extracted from host keychain (overwrites mounted version)
+# Copy credentials extracted from host keychain (overwrites mounted version).
+# Defensive: skip the cp when source and dest are the same inode. run-claude.sh
+# already avoids the dual-mount config that would cause this, but guard here
+# too so a misconfigured caller doesn't fail with "are the same file" (F1).
+CREDS_DEST=/home/claude/.claude/.credentials.json
 if [ -f /mnt/host-credentials.json ]; then
-  cp /mnt/host-credentials.json /home/claude/.claude/.credentials.json
-  chmod 600 /home/claude/.claude/.credentials.json
-  chown claude:claude /home/claude/.claude/.credentials.json
+  if [ ! /mnt/host-credentials.json -ef "$CREDS_DEST" ]; then
+    cp /mnt/host-credentials.json "$CREDS_DEST"
+  fi
+  chmod 600 "$CREDS_DEST"
+  chown claude:claude "$CREDS_DEST"
 fi
 
 # Generate minimal .claude.json to skip onboarding wizard
