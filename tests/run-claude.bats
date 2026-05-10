@@ -40,3 +40,22 @@ load test_helper
   rm -rf "$tmpdir"
   assert_failure
 }
+
+# ── F2: container chown corrupts host ~/.claude ownership ───────
+# Fix shape: run-claude.sh passes HOST_UID/HOST_GID; entrypoint.sh aligns
+# claude user's UID to match, so bind-mounted ~/.claude is naturally
+# accessible without an unconditional recursive chown that propagates to
+# the host on Linux/WSL.
+
+@test "F2: run-claude.sh passes HOST_UID and HOST_GID to docker run" {
+  run grep -E 'HOST_UID|HOST_GID' "$REPO_ROOT/run-claude.sh"
+  assert_success
+}
+
+@test "F2: entrypoint.sh does not unconditionally recurse-chown bind mounts" {
+  # An unindented (top-level / unconditional) chown -R of the bind-mounted
+  # ~/.claude is the F2 bug. Indented (inside an else-branch fallback) is
+  # acceptable because the UID-matching path skips it.
+  run grep -E '^chown -R claude:claude /home/claude/\.claude' "$REPO_ROOT/entrypoint.sh"
+  assert_failure
+}
