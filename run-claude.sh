@@ -23,8 +23,9 @@
 #      the wrong image (which would clobber the tag with unrelated contents).
 
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+main() {
 # ── Subcommands ──────────────────────────────────────────────────
 case "${1:-}" in
   list|ls)
@@ -290,3 +291,9 @@ for i in $(seq 1 60); do
 done
 echo "ERROR: Container setup did not complete within 60s. Check: docker logs $CONTAINER_NAME"
 exit 1
+}
+
+# Allow the script to be sourced (by tests) without running main.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
