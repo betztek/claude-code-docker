@@ -154,6 +154,9 @@ case "$AUTH_METHOD" in
   keychain)
     if ! command -v security &>/dev/null; then
       echo "ERROR: AUTH_METHOD=keychain but 'security' command not found (not macOS?)."
+      echo "       On Linux/WSL, set AUTH_METHOD=file in claude-docker.conf and point"
+      echo "       CREDENTIALS_FILE at \$HOME/.claude/.credentials.json (run 'claude /login'"
+      echo "       on the host first to populate it)."
       exit 1
     fi
     KEYCHAIN_ACCOUNT="${KEYCHAIN_ACCOUNT:-$(whoami)}"
