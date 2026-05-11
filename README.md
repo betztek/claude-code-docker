@@ -241,6 +241,18 @@ RUN apt-get update && apt-get install -y your-tools
 
 Then use `--image` to run it, or set `IMAGE_NAME` in your conf. See [claude-code-godot-docker](https://github.com/cdowin/claude-code-godot-docker) for an example that adds Godot game engine support.
 
+## Running tests
+
+The bats harness lives under `tests/`, with `bats-core`, `bats-support`, and `bats-assert` vendored as git submodules so the test rig is self-contained (no `apt install bats` needed).
+
+Clone with submodules — `git clone --recurse-submodules ...` or `git submodule update --init --recursive` after a plain clone. Then:
+
+```bash
+tests/lib/bats-core/bin/bats tests/
+```
+
+CI runs the same command on every push and pull request — see `.github/workflows/test.yml`.
+
 ## Requirements
 
 - Docker (Docker Desktop on macOS, `apt install docker.io` on Linux/WSL2)
