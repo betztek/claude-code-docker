@@ -75,3 +75,50 @@ load test_helper
   assert_success
   assert_output --partial "TTY"
 }
+
+# ── Phase 4d: regression coverage for originally-suspected sub-chunks ──
+# These guard behaviors that turned out to be already-correct on the
+# WSL/Ubuntu path. Tests catch future regressions if the guards are
+# accidentally removed.
+
+@test "resolve_timezone: reads tz_file contents when non-empty" {
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  echo "America/New_York" > "$tmpdir/timezone"
+  run bash -c "source '$REPO_ROOT/run-claude.sh' && resolve_timezone '$tmpdir/timezone' '$tmpdir/localtime'"
+  rm -rf "$tmpdir"
+  assert_success
+  assert_output "America/New_York"
+}
+
+@test "resolve_timezone: falls back to localtime symlink when tz_file absent" {
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  ln -s /usr/share/zoneinfo/America/Los_Angeles "$tmpdir/localtime"
+  run bash -c "source '$REPO_ROOT/run-claude.sh' && resolve_timezone '$tmpdir/timezone' '$tmpdir/localtime'"
+  rm -rf "$tmpdir"
+  assert_success
+  assert_output "America/Los_Angeles"
+}
+
+@test "resolve_timezone: returns empty (no error) when both inputs absent" {
+  local tmpdir
+  tmpdir=$(mktemp -d)
+  run bash -c "source '$REPO_ROOT/run-claude.sh' && resolve_timezone '$tmpdir/timezone' '$tmpdir/localtime'"
+  rm -rf "$tmpdir"
+  assert_success
+  assert_output ""
+}
+
+@test "missing gh: run-claude.sh guards the gh auth token call with command -v" {
+  run grep -E "command -v gh" "$REPO_ROOT/run-claude.sh"
+  assert_success
+}
+
+@test "keychain UX: non-mac error mentions AUTH_METHOD=file as an alternative" {
+  # The plan's 4b finding: when a Linux/WSL user copies the example without
+  # editing, the unhelpful 'security: command not found' branch fires.
+  # Error message should hint at the file-based alternative.
+  run grep -E 'AUTH_METHOD=file' "$REPO_ROOT/run-claude.sh"
+  assert_success
+}
