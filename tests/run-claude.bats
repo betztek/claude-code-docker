@@ -59,3 +59,19 @@ load test_helper
   run grep -E '^chown -R claude:claude /home/claude/\.claude' "$REPO_ROOT/entrypoint.sh"
   assert_failure
 }
+
+# ── F3: non-TTY graceful degradation ─────────────────────────────
+# Without a TTY, `docker exec -it` errors with 'the input device is not a TTY'
+# and the script exits 1, masking a successful container boot. The fix is an
+# attach_to_container helper that gates -it on stdin/stdout being TTYs and
+# prints a hint otherwise.
+
+@test "F3: attach_to_container returns 0 with hint when no TTY" {
+  run bash -c "
+    source '$REPO_ROOT/run-claude.sh' || exit 1
+    exec </dev/null
+    attach_to_container claude-smoke
+  "
+  assert_success
+  assert_output --partial "TTY"
+}
