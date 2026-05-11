@@ -42,6 +42,21 @@ is_path_under_dir() {
   esac
 }
 
+# Resolve the host's timezone string for the container's TZ env var.
+# Returns the contents of $1 (default /etc/timezone) if non-empty,
+# otherwise the stripped basename of $2 (default /etc/localtime) when
+# it's a symlink, otherwise empty. Parameterized so bats can test the
+# fallbacks without mocking system paths.
+resolve_timezone() {
+  local tz_file="${1:-/etc/timezone}"
+  local localtime_link="${2:-/etc/localtime}"
+  if [ -s "$tz_file" ]; then
+    cat "$tz_file"
+  elif [ -L "$localtime_link" ]; then
+    readlink "$localtime_link" | sed 's|.*/zoneinfo/||'
+  fi
+}
+
 # Attach to a running claude container. Execs into an interactive session
 # when stdin/stdout are TTYs; otherwise prints the manual-attach command
 # and returns 0 so the caller can exit successfully. Without this guard,
@@ -310,7 +325,7 @@ docker run -d \
   -e "HOST_HOME=$HOME" \
   -e "HOST_UID=$(id -u)" \
   -e "HOST_GID=$(id -g)" \
-  -e "TZ=$(cat /etc/timezone 2>/dev/null || readlink /etc/localtime 2>/dev/null | sed 's|.*/zoneinfo/||')" \
+  -e "TZ=$(resolve_timezone)" \
   -v /etc/localtime:/etc/localtime:ro \
   "${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}" \
   "${SSH_ARGS[@]+"${SSH_ARGS[@]}"}" \
