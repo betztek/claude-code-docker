@@ -154,6 +154,59 @@ chmod +x ~/.claude/statusline.sh
 
 Then add the `statusLine` block to your `~/.claude/settings.json` (see above). Requires `jq` for full functionality. Rate limit data comes from Claude Code's native `rate_limits` field (v2.1.80+) — no external tools needed.
 
+## Running on Windows (WSL2)
+
+Tested on Ubuntu 24.04 inside WSL2. Native Windows is not supported; everything below runs inside the WSL distro.
+
+### Prerequisites (one-time per Windows machine)
+
+1. A WSL2 distro — `wsl --install -d Ubuntu` from PowerShell if you don't already have one.
+2. systemd enabled in the distro so `dockerd` autostarts:
+   ```bash
+   sudo bash -c "printf '[boot]\nsystemd=true\n' > /etc/wsl.conf"
+   ```
+   Then `wsl --shutdown` from PowerShell so systemd takes effect on next start.
+3. Docker installed via apt inside WSL (no Docker Desktop needed):
+   ```bash
+   sudo apt-get install -y docker.io
+   sudo usermod -aG docker $USER
+   ```
+   `wsl --shutdown` again so the docker group membership applies. Verify with `docker run --rm hello-world`.
+
+### Configuration
+
+Use `auth_method=file` pointing at the canonical Linux credentials path:
+
+```sh
+# claude-docker.conf
+AUTH_METHOD="file"
+CREDENTIALS_FILE="$HOME/.claude/.credentials.json"
+SSH_METHOD="none"   # or "key-file" if you've added a key to GitHub
+```
+
+Populate `~/.claude/.credentials.json` by installing Claude Code natively in WSL and running `/login` once:
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+~/.local/bin/claude   # follow the /login prompt
+```
+
+Smoke test:
+
+```bash
+./run-claude.sh smoke
+docker exec claude-smoke gosu claude claude --version
+```
+
+In a non-TTY shell (e.g. when scripting the run), `./run-claude.sh` exits 0 after the container is ready and prints the manual-attach command instead of trying to open an interactive session.
+
+### Where to put the repo
+
+| Location | Notes |
+|---|---|
+| **Inside WSL** (`~/claude-code-docker`, recommended) | Avoids `/mnt/c` permission and line-ending quirks. |
+| **Cross-mounted from Windows** (`/mnt/c/...`) | Useful if you want to sync the repo between machines via OneDrive or similar. Git for Windows defaults to `core.autocrlf=true`, which mangles shell scripts and submodule contents. Either set `git config --global core.autocrlf input` before cloning, or fix each `tests/lib/bats-*` submodule after cloning: `(cd <submodule> && git config core.autocrlf input && git rm --cached -r . && git reset --hard)`. |
+
 ## How it works
 
 ```
@@ -190,11 +243,11 @@ Then use `--image` to run it, or set `IMAGE_NAME` in your conf. See [claude-code
 
 ## Requirements
 
-- Docker Desktop
-- **macOS** (currently the only tested/supported host)
+- Docker (Docker Desktop on macOS, `apt install docker.io` on Linux/WSL2)
+- **macOS** or **Linux / Windows + WSL2**
 - Claude Code account (OAuth login on host, or API key)
 
-> **Note:** This project is built and tested on macOS. The default auth method (`keychain`) uses macOS Keychain, `gh` tokens are extracted via macOS keychain, and the timezone sync relies on macOS paths. Linux host support is possible with the `file` or `api-key` auth methods and manual `GH_TOKEN` setup, but is untested.
+> **Note:** The default `keychain` auth method is macOS-only. For Linux and WSL2 hosts, use `auth_method=file` with credentials at `$HOME/.claude/.credentials.json` — see "Running on Windows (WSL2)" above for the full recipe.
 
 ## License
 
