@@ -42,6 +42,22 @@ is_path_under_dir() {
   esac
 }
 
+# Attach to a running claude container. Execs into an interactive session
+# when stdin/stdout are TTYs; otherwise prints the manual-attach command
+# and returns 0 so the caller can exit successfully. Without this guard,
+# non-interactive callers (CI, agent harnesses, piped stdin) hit
+# 'the input device is not a TTY' from docker exec -it even though the
+# container booted fine (F3).
+attach_to_container() {
+  local container="$1"
+  shift
+  if [ -t 0 ] && [ -t 1 ]; then
+    exec docker exec -it "$container" gosu claude claude --dangerously-skip-permissions "$@"
+  fi
+  echo "Container '$container' is ready. No TTY detected — attach with:"
+  echo "  docker exec -it $container gosu claude claude --dangerously-skip-permissions"
+}
+
 main() {
 # ── Subcommands ──────────────────────────────────────────────────
 case "${1:-}" in
@@ -279,7 +295,8 @@ if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
     echo "      Stop it first to change workspace: $0 stop $SESSION_NAME"
   fi
   echo "Attaching to existing container '$SESSION_NAME'..."
-  exec docker exec -it "$CONTAINER_NAME" gosu claude claude --dangerously-skip-permissions "$@"
+  attach_to_container "$CONTAINER_NAME" "$@"
+  exit 0
 fi
 
 # Clean up any stopped container with the same name
@@ -308,7 +325,8 @@ echo "Container started. Waiting for setup..."
 for i in $(seq 1 60); do
   if docker exec "$CONTAINER_NAME" test -f /tmp/.claude-ready 2>/dev/null; then
     echo "Attaching..."
-    exec docker exec -it "$CONTAINER_NAME" gosu claude claude --dangerously-skip-permissions "$@"
+    attach_to_container "$CONTAINER_NAME" "$@"
+    exit 0
   fi
   sleep 1
 done
