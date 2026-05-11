@@ -32,7 +32,7 @@ This plan is structured so any agent (a fresh session, a subagent, or the user t
 - [x] **Phase 4b** — TDD: F2 fixed (container chown corrupts host `~/.claude` ownership on Linux). run-claude.sh passes HOST_UID/HOST_GID to docker run; entrypoint edits /etc/passwd and /etc/group directly via sed (intentionally NOT `usermod -u`, which auto-chowns the home dir and propagates through the bind mount — that's the trap that bit the first attempt). Legacy chown -R is preserved as an else-branch fallback for callers that don't pass HOST_UID. End-to-end smoke: host `~/.claude` ownership unchanged before/after run.
 - [x] **Phase 4c** — TDD: F3 fixed. New `attach_to_container` helper at top of `run-claude.sh` gates the `docker exec -it` on `[ -t 0 ] && [ -t 1 ]`; non-TTY callers get a one-line manual-attach hint and exit 0. Both call sites (reconnect-to-running and wait-for-setup) updated. 7/7 bats green; end-to-end smoke in our non-TTY harness now exits 0 with the hint instead of 1 with the cryptic TTY error.
 - [x] **Phase 4d** — Regression coverage + `.gitattributes` review. Four commits: regression bats cases (red), `resolve_timezone` extraction (green), keychain non-mac error now suggests `AUTH_METHOD=file`, `.gitattributes` extended with `* text=auto` baseline + Dockerfile/*.yml/*.yaml LF pins. 12/12 bats green.
-- [ ] **Phase 5** — README WSL section
+- [x] **Phase 5** — README WSL section + running-tests section landed. Updated Requirements + the macOS-only Note to reflect that Linux/WSL2 is now supported via `auth_method=file`.
 - [ ] **Phase 6** — Fork, push, open PR
 
 (Phases 4a–4d may be reordered or trimmed once Phase 2 produces the real failure list.)
