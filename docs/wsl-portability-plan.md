@@ -37,6 +37,32 @@ This plan is structured so any agent (a fresh session, a subagent, or the user t
 
 (Phases 4a–4d may be reordered or trimmed once Phase 2 produces the real failure list.)
 
+## Handoff notes (cold-pickup reference)
+
+State on the active machine (`/mnt/c/Users/jerem/OneDrive/git-sync/claude-code-docker`) as of Phase 5 close:
+
+- Branch `wsl-portability` is **26 commits ahead of `origin/wsl-portability`** and has not been pushed since `664a528` (the last email-scrub force-push, before any of the Phase 3/4/5 work). All subsequent commits are local-only.
+- The pending push is blocked on GitHub OAuth `workflow` scope. The CI workflow file (`.github/workflows/test.yml`) added in Phase 3 requires it. Resolution: create a classic PAT at https://github.com/settings/tokens with `repo` + `workflow` scopes, then `git push origin wsl-portability` and paste the token when Git Credential Manager prompts (alternative: register `~/.ssh/id_rsa.pub` with GitHub and switch `origin` to SSH).
+- Local artifacts not in the repo:
+  - `claude-docker.conf` (gitignored) currently points at `claude-code-test` with credentials at `$HOME/.claude/.credentials.json` — the canonical Linux path now that F1 is fixed.
+  - Docker image `claude-code-test` was built ad-hoc on top of `ghcr.io/cdowin/claude-code-docker:latest` via the test-image-overlay recipe (see Phase 4 lessons). Used for smoke runs that exercise our entrypoint changes without a 5-minute full rebuild.
+  - `~/.claude.broken-by-f2.*` dirs in WSL home are orphan snapshots from earlier pre-F2-fix smoke runs. Safe to `rm -rf`.
+- **OneDrive caveat:** the repo lives under `/mnt/c/Users/jerem/OneDrive/git-sync/`. `.git/` *is* syncing through OneDrive across the two Windows machines. Don't write `.git/` from both machines simultaneously — OneDrive's last-writer-wins can corrupt pack files or refs. Treat as soft "one machine at a time" while iterating.
+- Two general workflow memories live at `~/.claude/projects/.../memory/` for this project: `workflow_test_image_overlay.md` (fast-iteration recipe for container changes) and `workflow_clean_baseline_for_state_bug_verification.md` (reset state before each fix-verification run).
+
+## Pre-Phase-6 dogfooding checklist
+
+Before sending the upstream PR, exercise these in a real WSL terminal. Each is a path the smoke runs don't cover. Log any new findings under "Phase 2 findings" or append here.
+
+- [ ] **Interactive `./run-claude.sh myproject` in a real WSL shell.** Exercises the TTY branch of `attach_to_container` (the F3 fix); only the non-TTY exit-0 path has been verified. Do real work in the session for at least a few minutes.
+- [ ] **Detach + reattach.** Ctrl+C out, re-run `./run-claude.sh myproject`. Hits the second `attach_to_container` call site (reconnect-to-running), separate from the wait-for-setup one.
+- [ ] **Token refresh past expiry.** F1's fix relies on the `~/.claude` bind mount being writable so Claude can refresh OAuth tokens. Untested end-to-end; if refresh fails, sessions break after the first expiry. Easiest probe: keep a session open through the natural expiry, or wait until tokens age out and reuse.
+- [ ] **Plugin loading from `~/.claude/plugins`.** `entrypoint.sh` has `HOST_HOME` symlink logic that we didn't touch but interacts with the new UID-matched `claude` user — plugin absolute-path resolution may behave differently.
+- [ ] **SSH for git.** Switch `SSH_METHOD` to `key-file` and `git push` from inside a claude session. Smokes always used `none`.
+- [ ] **Keychain error on Linux/WSL.** Set `AUTH_METHOD="keychain"` in conf and run; confirm the new "try AUTH_METHOD=file" hint shows up clearly and the user can act on it.
+- [ ] **Other-machine sync.** After the workflow-scope push lands, on the other Windows machine: `git fetch origin && git checkout wsl-portability && git reset --hard origin/wsl-portability`. Confirm reset-hard adopts the rewritten branch cleanly. Also verify `git config --global user.email dev@betztek.com` is set so future commits don't diverge.
+- [ ] **`claude-code-test` image cleanup.** Once upstream merges and `ghcr.io/cdowin/claude-code-docker:latest` carries the F1/F2/F3 fixes, drop `claude-code-test` and revert `IMAGE_NAME` in `claude-docker.conf` to point at the GHCR image.
+
 ## Context
 
 `claude-code-docker` is a third-party wrapper that runs Claude Code in persistent, sandboxed Docker containers, controlled by a host-side bash orchestrator ([run-claude.sh](run-claude.sh)). It targets macOS and Linux today — calls macOS Keychain (`security`), reads `/etc/timezone`, assumes `gh` is on PATH. The current clone is a plain clone of upstream `cdowin/claude-code-docker` (not a fork). There are **no tests**.
